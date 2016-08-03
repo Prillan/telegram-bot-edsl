@@ -1,0 +1,43 @@
+name:                telegram-bot-edsl
+version:             0.0.1.0
+synopsis:            A small and simple EDSL for building telegram bots
+description:         Please see README.md
+homepage:            https://github.com/Prillan/telegram-bot-edsl#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Rasmus Précenth
+maintainer:          prillan91@gmail.com
+copyright:           2016 Rasmus Précenth
+category:            Web
+build-type:          Simple
+-- extra-source-files:
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Web.Telegram.API.Bot.DSL
+  build-depends:       aeson
+                     , aeson-pretty
+                     , base >= 4.7 && < 5
+                     , base64-bytestring >= 1.0.0.1
+                     , bytestring
+                     , http-client >= 0.4.31
+                     , http-client-tls >= 0.2.4.1
+                     , mtl >= 2.2.1
+                     , random >= 1.1 && < 1.2
+                     , semigroups >= 0.18 && < 0.19
+                     , servant >= 0.7.1 && < 0.8
+                     , servant-server >= 0.7.1 && < 0.8
+                     , telegram-api >= 0.4.4 && < 0.5
+                     , text >= 1.2.2.1
+                     , transformers >= 0.4.2.0
+                     , unordered-containers
+                     , wai >= 3.2.1.1
+                     , wai-logger >= 2.2.7
+                     , warp >= 3.2 && < 3.3
+                     , warp-tls
+  default-language:    Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/Prillan/telegram-bot-edsl
