@@ -1,9 +1,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Web.Telegram.API.Bot.DSL where
+module Web.Telegram.Bot.Server
+  ( BotSettings(..)
+  , runBot ) where
 
+import Web.Telegram.Bot.DSL
 import Web.Telegram.API.Bot
 
 import Control.Exception (bracket)
@@ -12,7 +14,7 @@ import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
-import Data.Semigroup (Semigroup, (<>))
+import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
@@ -24,31 +26,6 @@ import Network.Wai.Handler.Warp (Settings, setPort, setLogger, defaultSettings)
 import Network.Wai.Handler.WarpTLS (runTLS, tlsSettings)
 import Servant
 import System.Random
-
-data Action = Reply Text | NoOp
-  deriving Show
-
-newtype Listener = Listener { runListener :: Update -> [Action] }
-newtype Bot = Bot { listeners :: [Listener] }
-  deriving (Semigroup, Monoid)
-
-class MkBot a where
-  mkBot :: a -> Bot
-
-instance MkBot Listener where
-  mkBot = Bot . pure
-instance MkBot Bot where
-  mkBot = id
-
-newMessage :: (Text -> [Action]) -> Listener
-newMessage f = Listener $ \u ->
-  case (text =<< message u) of
-    Just msg -> f msg
-    Nothing  -> []
-
-echoBot :: Bot
-echoBot = mkBot $
-  newMessage (\m -> pure $ Reply m)
 
 runBotOnUpdate :: Bot -> Update -> BotM ()
 runBotOnUpdate b u = runActions u . concatMap (flip runListener u) . listeners $ b
@@ -126,7 +103,7 @@ data BotSettings = BotSettings
   , bsToken          :: Text
   , bsServerSettings :: Maybe Settings }
 
-runBot :: BotSettings -> Bot -> IO ()
+runBot :: (MkBot bot) => BotSettings -> bot -> IO ()
 runBot s b = do
   let tls = tlsSettings (bsSslCert s) (bsSslKey s)
       req = SetWebhookWithCertRequest
@@ -160,6 +137,6 @@ runBot s b = do
                        . maybe defaultSettings id
                        $ (bsServerSettings s)
           replyManager <- newManager tlsManagerSettings
-          let bc = BotConf secret b (Token $ bsToken s) replyManager
+          let bc = BotConf secret (mkBot b) (Token $ bsToken s) replyManager
           runTLS tls settings (webhookApp bc)
 
