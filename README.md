@@ -2,7 +2,7 @@ This is a WIP, the README will be completed later.
 
 ## Telegram Bot EDSL
 
-This is a library for easily creating telegram bots. A full example
+This is a library for easy creation of telegram bots. A full example
 can be found in `example/Main.hs`.
 
 ## Syntax
