@@ -27,31 +27,7 @@ import Network.Wai.Handler.WarpTLS (runTLS, tlsSettings)
 import Servant
 import System.Random
 
-runBotOnUpdate :: Bot -> Update -> BotM ()
-runBotOnUpdate b u = runActions u . concatMap (flip runListener u) . listeners $ b
-runActions :: Update -> [Action] -> BotM ()
-runActions u = mapM_ runAction
-  where runAction NoOp = pure ()
-        runAction (Reply msg) =
-          case message u of
-            Nothing -> liftIO $ putStrLn "No message, don't know how to reply."
-            Just m  -> do
-              t <- bcToken <$> ask
-              manager <- bcManager <$> ask
-              let smr = SendMessageRequest
-                         {
-                           message_chat_id = T.pack.show.chat_id.chat $ m
-                         , message_text    = msg
-                         , message_parse_mode = Nothing
-                         , message_disable_web_page_preview = Nothing
-                         , message_disable_notification = Nothing
-                         , message_reply_to_message_id = Just $ message_id m
-                         , message_reply_markup = Nothing
-                         }
-              response <- liftIO $ sendMessage t smr manager
-              case response of
-                Left e -> liftIO $ putStrLn $ take 100 $ show e
-                Right _ -> liftIO $ putStrLn $ "Message sent successfully"
+
 
 generateSecretToken :: Int -> IO Text
 generateSecretToken n = T.map removeBad

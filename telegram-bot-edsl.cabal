@@ -22,15 +22,18 @@ library
                      , base >= 4.7 && < 5
                      , base64-bytestring >= 1.0.0.1
                      , bytestring
+                     , free >= 4.12.4
                      , http-client >= 0.4.31
                      , http-client-tls >= 0.2.4.1
                      , mtl >= 2.2.1
+                     , pipes
                      , random >= 1.1 && < 1.2
                      , semigroups >= 0.18 && < 0.19
                      , servant >= 0.7.1 && < 0.8
                      , servant-server >= 0.7.1 && < 0.8
                      , telegram-api >= 0.4.4 && < 0.5
                      , text >= 1.2.2.1
+                     , time >= 1.5.0.1
                      , transformers >= 0.4.2.0
                      , unordered-containers
                      , wai >= 3.2.1.1
@@ -46,9 +49,11 @@ executable telegram-bot-echo
   hs-source-dirs:      example/
   main-is:             Main.hs
   build-depends:       base
+                     , free >= 4.12.4
                      , optparse-applicative
                      , telegram-bot-edsl
                      , text
+                     , time >= 1.5.0.1
   extensions:          OverloadedStrings
 
 source-repository head
