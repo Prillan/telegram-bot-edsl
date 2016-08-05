@@ -1,22 +1,52 @@
-This is a WIP, the README will be completed later.
+This is a WIP. You have been warned.
 
 ## Telegram Bot EDSL
 
 This is a library for easy creation of telegram bots. A full example
 can be found in `example/Main.hs`.
 
+Note: Currently requires
+[this patched version of `telegram-api`](https://github.com/Prillan/haskell-telegram-api/tree/setwebhook-patch). It
+adds the possibility of uploading self-signed certs.
+
 ## Syntax
 
-Example:
+The DSL is built on top of `FreeT`, providing you with all your
+favorite `IO` actions at the bottom of a safe layer. This layer is the
+monad `BotM m` for some base monad `m`.
+
+### Primitives
+
 ```haskell
-bot =  cmd "/echo"    (\m -> Just m)
-   <+> cmd "/reverse" (\m -> Just (T.reverse m))
-   <+> cmd "/help"    (\_ -> Just "This is the help message!")
+cmd    :: Monad m => Text -> (Text -> BotM m a) -> BotCommand (BotM m a)
+choice :: Monad m => BotCommand (BotM m a) -> BotM m a
+input  :: Monad m => BotM m Text
+send   :: Monad m => Text -> BotM m ()
+```
+
+The type `BotCommand a` is just a synonym for `[(Text, Text -> a)]` so
+everything that works on lists work on `BotCommand` as well. It comes
+in handy when selecting between different commands, see the example
+below.
+
+### Example
+```haskell
+import qualified Data.Text as T
+import Data.Time (getZonedTime)
+import Web.Telegram.Bot.DSL
+
+bot = choice $ cmd "/echo"    (\m -> send m)
+            <> cmd "/reverse" (\m -> send (T.reverse m))
+            <> cmd "/help"    (\_ -> send "This is the help message!")
+            <> cmd "/date"    (\_ -> do
+                                t <- liftIO $ getZonedTime
+                                send $ "The time is: " <> (T.pack . show $ t))
 ```
 
 ## How to run it
 
-In order to run the bot you need five things.
+You can always test your bot in the terminal by running
+`runBotInTerminal bot`. In order to put it live, you need five things.
 
 1. The ssl certificate file.
 2. The ssl private key file.

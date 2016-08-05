@@ -5,15 +5,19 @@ module Web.Telegram.Bot.Server
   ( BotSettings(..)
   , runBot ) where
 
-import Web.Telegram.Bot.DSL
+import Web.Telegram.Bot.Internal hiding (send)
 import Web.Telegram.API.Bot
 
+import Control.Concurrent.Async (async)
 import Control.Exception (bracket)
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -23,11 +27,31 @@ import Network.HTTP.Client.TLS  (tlsManagerSettings)
 import Network.Wai (Application)
 import Network.Wai.Logger (withStdoutLogger)
 import Network.Wai.Handler.Warp (Settings, setPort, setLogger, defaultSettings)
-import Network.Wai.Handler.WarpTLS (runTLS, tlsSettings)
+import Network.Wai.Handler.WarpTLS (TLSSettings, runTLS, tlsSettings)
+import Pipes hiding (Proxy)
+import Pipes.Concurrent
+import qualified Pipes.Prelude as P
 import Servant
 import System.Random
 
-
+sendReply :: (Monad m, MonadIO io) => ChatId -> Text -> ReaderT (BotConf m) io ()
+sendReply cid t = do
+  manager <- bcManager <$> ask
+  token   <- bcToken   <$> ask
+  let smr = SendMessageRequest
+             {
+               message_chat_id = T.pack.show $ cid
+             , message_text    = t
+             , message_parse_mode = Nothing
+             , message_disable_web_page_preview = Nothing
+             , message_disable_notification = Nothing
+             , message_reply_to_message_id = Nothing
+             , message_reply_markup = Nothing
+             }
+  response <- liftIO $ sendMessage token smr manager
+  case response of
+    Left e -> liftIO $ putStrLn $ take 1000 $ show e
+    Right _ -> liftIO $ putStrLn $ "Message sent successfully"
 
 generateSecretToken :: Int -> IO Text
 generateSecretToken n = T.map removeBad
@@ -41,35 +65,79 @@ generateSecretToken n = T.map removeBad
         removeBad '=' = '_'
         removeBad x   = x
 
-type URL = Text
 type WebhookApi =
   Capture "secret" Text :> ReqBody '[JSON] Update
                         :> Post '[JSON] ()
 
-data BotConf = BotConf
+data BotConf m = BotConf
   {
     bcSecret  :: Text,
-    bcBot     :: Bot,
+    bcBot     :: Bot m (),
     bcToken   :: Token,
     bcManager :: Manager
   }
-type BotM = ReaderT BotConf (ExceptT ServantErr IO)
 
-webhookServer :: Text -> Update -> BotM ()
-webhookServer secret value = do
-  presetSecret <- bcSecret <$> ask
-  bot <- bcBot <$> ask
-  if presetSecret /= secret
-    then (liftIO $ putStrLn "Invalid secret")
-    else runBotOnUpdate bot value
+type ChatId = Int
+type Callback = ServerOutput -> IO ()
+data ServerOutput = ServerOutput ChatId Text
+
+webhookServer :: MonadIO io
+              => Callback
+              -> Text
+              -> Update
+              -> ReaderT (BotConf io) Handler ()
+webhookServer callback secret value = do
+  x <- bcSecret <$> ask
+  when (x == secret) $ do
+    let m = message value
+    case (chat_id.chat <$> m, m >>= text) of
+      (Just cid, Just t)  -> liftIO $ callback $ ServerOutput cid t
+      _ -> pure ()
 
 webhookApi :: Proxy WebhookApi
 webhookApi = Proxy :: Proxy WebhookApi
 
-webhookApp :: BotConf -> Application
-webhookApp bc =
-  serve webhookApi $ enter (runReaderTNat bc) (webhookServer :: ServerT WebhookApi BotM)
+webhookApp :: MonadIO m => BotConf m -> Callback -> Application
+webhookApp bc callback = do
+   let webhookServer' = webhookServer callback
+   serve webhookApi $ enter (runReaderTNat bc) webhookServer'
 
+botWorker :: MonadIO io => Bot IO ()
+                        -> Output (ChatId, BotOutput)
+                        -> Consumer ServerOutput io ()
+botWorker defaultBot output = loop Map.empty
+  where loop m = do
+          sm  <- await  -- Get message from the server
+          let ServerOutput cid t = sm
+          (b, m') <- case Map.lookup cid m of
+                       Nothing -> do
+                         (bo, bi) <- liftIO $ spawn unbounded
+                         liftIO $ async $ runEffect $ fromInput bi
+                                                   >-> forever defaultBot
+                                                   >-> P.map (\a -> (cid, a))
+                                                   >-> toOutput output
+
+                         pure (bo, Map.insert cid bo m)
+                       Just mbox -> pure (mbox, m)
+          liftIO $ atomically $ send b t -- Send a message to the specific bot
+          loop m'
+
+handleResponses :: ReaderT (BotConf IO) (Consumer (ChatId, BotOutput) IO) ()
+handleResponses = forever $ do
+  (cid, a) <- lift $ await
+  case a of
+    BotSend t -> sendReply cid t
+    _ -> pure ()
+  liftIO $ putStrLn $ "RESPONSE: " <> show a
+
+runServer :: TLSSettings -> Settings -> BotConf IO -> IO ()
+runServer tls settings bc = do
+  (serverOutput, serverInput) <- liftIO $ spawn (bounded 1)
+  let cb d = atomically $ send serverOutput d *> pure ()
+  (botOutput, botInput) <- liftIO $ spawn unbounded
+  async $ runEffect $ fromInput serverInput >-> botWorker (bcBot bc) botOutput
+  async $ runEffect $ fromInput botInput    >-> (runReaderT handleResponses bc)
+  runTLS tls settings (webhookApp bc cb)
 
 data BotSettings = BotSettings
   { bsSslCert        :: FilePath
@@ -79,7 +147,7 @@ data BotSettings = BotSettings
   , bsToken          :: Text
   , bsServerSettings :: Maybe Settings }
 
-runBot :: (MkBot bot) => BotSettings -> bot -> IO ()
+runBot :: BotSettings -> BotM IO () -> IO ()
 runBot s b = do
   let tls = tlsSettings (bsSslCert s) (bsSslKey s)
       req = SetWebhookWithCertRequest
@@ -107,12 +175,12 @@ runBot s b = do
             Right _ -> do
               putStrLn $ "Successfully removed the webhook"
         runBot' _ Nothing = pure ()
-        runBot' tls (Just secret) = withStdoutLogger $ \log -> do
+        runBot' tls (Just secret) = withStdoutLogger $ \aplog -> do
           let settings = setPort (bsListeningPort s)
-                       . setLogger log
+                       . setLogger aplog
                        . maybe defaultSettings id
                        $ (bsServerSettings s)
           replyManager <- newManager tlsManagerSettings
           let bc = BotConf secret (mkBot b) (Token $ bsToken s) replyManager
-          runTLS tls settings (webhookApp bc)
+          runServer tls settings bc
 
