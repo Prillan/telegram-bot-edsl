@@ -15,11 +15,18 @@ module Web.Telegram.Bot.DSL
   , MonadIO
   , liftIO ) where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Bifunctor
+import Data.Char
+import Data.Maybe
 import Data.Semigroup ((<>))
+import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
+import Text.Megaparsec (Parsec)
+import qualified Text.Megaparsec as MP
 import Web.Telegram.Bot.Internal
 
 choice :: Monad m => BotCommand (BotM m a) -> BotM m a
@@ -35,14 +42,35 @@ defaultHelpMessage :: [Text] -> Text
 defaultHelpMessage cmds =
   T.intercalate "\n" $ (["Valid commands: "] ++ cmds ++ ["/help"])
 
+data Command = Command { command     :: Text
+                       , botUserName :: Maybe Text
+                       , arguments   :: Maybe Text }
+  deriving Show
+commandParser :: Parsec Text Command
+commandParser = do
+  _ <- MP.char '/'
+  cmd <- some (MP.satisfy ((&&) <$> not.isSeparator <*> not.('@'==)))
+  name <- optional (MP.char '@'
+                 *> some (MP.satisfy (not.isSeparator)))
+  args <- optional (MP.spaceChar *> some MP.anyChar)
+  MP.eof
+  pure (Command (T.pack cmd) (T.pack <$> name) (T.pack <$> args))
+
+parseCommand :: Text -> Either Text Command
+parseCommand = first (T.pack.show) . MP.runParser commandParser ""
+
 choice' :: Monad m => (Maybe ([Text] -> Text)) -> BotCommand (BotM m a) -> BotM m a
-choice' helpMessage cmds = do
-  x <- input
-  case (helpMessage, x == "/help") of
-    (Just help, True) -> send (help $ map fst cmds) *> choice cmds
-    _                 -> foldM (go x) Nothing cmds >>= maybe (choice cmds) pure
-  where go t Nothing (cp, c)
-          | cp `T.isPrefixOf` t = Just <$> c (parseInput cp t)
-          | otherwise           = pure Nothing
+choice' helpMessage cmds = loop
+  where loop = do
+          x <- input
+          case (parseCommand x) of
+            Left  _ -> loop
+            Right c -> case (helpMessage, command c) of
+              (Just help, "help") -> send (help $ map fst cmds)
+                                      *> loop
+              _                   -> foldM (go c) Nothing cmds
+                                      >>= maybe (choice cmds) pure
+        go ic Nothing (cp, cmd)
+          | command ic == cp = Just <$> cmd (maybe "" id (arguments ic))
+          | otherwise        = pure Nothing
         go _ v _ = pure v
-        parseInput prefix message = T.drop (T.length prefix + 1) message

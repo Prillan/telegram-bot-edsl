@@ -18,10 +18,10 @@ helpMessage = (
   )
 
 bot :: MonadIO io => BotM io ()
-bot = choice $ cmd "/start"   (const (send helpMessage))
-            <> cmd "/echo"    (send)
-            <> cmd "/reverse" (send . T.reverse)
-            <> cmd "/add" (\_ -> do
+bot = choice $ cmd "start"   (const (send helpMessage))
+            <> cmd "echo"    (send)
+            <> cmd "reverse" (send . T.reverse)
+            <> cmd "add" (\_ -> do
                  send $  "Entering the adder! \n"
                       <> "Enter a number!"
                  xi <- input' Nothing 5
@@ -31,7 +31,7 @@ bot = choice $ cmd "/start"   (const (send helpMessage))
                  let sum = (+) <$> xi <*> yi :: Maybe Integer
                  send $ "Received " <> tshow yi <> "\n"
                      <> "Sum is " <> tshow sum)
-            <> cmd "/date" (\_ -> do
+            <> cmd "date" (\_ -> do
                  t <- liftIO $ getZonedTime
                  send $ "Current time: " <> (T.pack . show $ t))
 
