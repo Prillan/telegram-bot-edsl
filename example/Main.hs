@@ -18,9 +18,9 @@ helpMessage = (
   )
 
 bot :: MonadIO io => BotM io ()
-bot = choice $ cmd "/echo"    (send)
+bot = choice $ cmd "/start"   (const (send helpMessage))
+            <> cmd "/echo"    (send)
             <> cmd "/reverse" (send . T.reverse)
-            <> cmd "/help"    (const (send helpMessage))
             <> cmd "/add" (\_ -> do
                  send $  "Entering the adder! \n"
                       <> "Enter a number!"
