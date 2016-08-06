@@ -26,7 +26,7 @@ import Network.HTTP.Client      (Manager, newManager)
 import Network.HTTP.Client.TLS  (tlsManagerSettings)
 import Network.Wai (Application)
 import Network.Wai.Logger (withStdoutLogger)
-import Network.Wai.Handler.Warp (Settings, setPort, setLogger, defaultSettings)
+import Network.Wai.Handler.Warp (Settings, setPort, setLogger, defaultSettings, runSettings)
 import Network.Wai.Handler.WarpTLS (TLSSettings, runTLS, tlsSettings)
 import Pipes hiding (Proxy)
 import Pipes.Concurrent
@@ -130,18 +130,20 @@ handleResponses = forever $ do
     _ -> pure ()
   liftIO $ putStrLn $ "RESPONSE: " <> show a
 
-runServer :: TLSSettings -> Settings -> BotConf IO -> IO ()
+runServer :: Maybe TLSSettings -> Settings -> BotConf IO -> IO ()
 runServer tls settings bc = do
   (serverOutput, serverInput) <- liftIO $ spawn (bounded 1)
   let cb d = atomically $ send serverOutput d *> pure ()
   (botOutput, botInput) <- liftIO $ spawn unbounded
   async $ runEffect $ fromInput serverInput >-> botWorker (bcBot bc) botOutput
   async $ runEffect $ fromInput botInput    >-> (runReaderT handleResponses bc)
-  runTLS tls settings (webhookApp bc cb)
+  case tls of
+    Just tls' -> runTLS tls' settings (webhookApp bc cb)
+    Nothing   -> runSettings settings (webhookApp bc cb)
 
 data BotSettings = BotSettings
   { bsSslCert        :: FilePath
-  , bsSslKey         :: FilePath
+  , bsSslKey         :: Maybe FilePath
   , bsRemoteUrl      :: Text
   , bsListeningPort  :: Int
   , bsToken          :: Text
@@ -149,7 +151,7 @@ data BotSettings = BotSettings
 
 runBot :: BotSettings -> BotM IO () -> IO ()
 runBot s b = do
-  let tls = tlsSettings (bsSslCert s) (bsSslKey s)
+  let tls = tlsSettings <$> (pure $ bsSslCert s) <*> (bsSslKey s)
       req = SetWebhookWithCertRequest
             $ FileUpload Nothing (FileUploadFile (bsSslCert s))
   manager <- newManager tlsManagerSettings

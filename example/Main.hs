@@ -63,10 +63,10 @@ opts = info (helper <*> options) fullDesc
 
 options :: Parser BotSettings
 options =
-  BotSettings <$> argument str  (metavar "SSL_CERT_FILE")
-              <*> argument str  (metavar "SSL_KEY_FILE")
-              <*> argument text (metavar "REMOTE_URL_BASE")
-              <*> argument auto (metavar "PORT")
-              <*> argument text (metavar "BOT_TOKEN")
+  BotSettings <$> argument str            (metavar "SSL_CERT_FILE")
+              <*> argument (Just <$> str) (metavar "SSL_KEY_FILE")
+              <*> argument text           (metavar "REMOTE_URL_BASE")
+              <*> argument auto           (metavar "PORT")
+              <*> argument text           (metavar "BOT_TOKEN")
               <*> pure Nothing
   where text = T.pack <$> str
