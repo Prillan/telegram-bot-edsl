@@ -18,10 +18,15 @@ monad `BotM m` for some base monad `m`.
 ### Primitives
 
 ```haskell
-cmd    :: Monad m => Text -> (Text -> BotM m a) -> BotCommand (BotM m a)
-choice :: Monad m => BotCommand (BotM m a) -> BotM m a
 input  :: Monad m => BotM m Text
 send   :: Monad m => Text -> BotM m ()
+```
+
+### Combinators
+
+```haskell
+cmd    :: Monad m => Text -> (Text -> BotM m a) -> BotCommand (BotM m a)
+choice :: Monad m => BotCommand (BotM m a) -> BotM m a
 ```
 
 The type `BotCommand a` is just a synonym for `[(Text, Text -> a)]` so
@@ -35,12 +40,11 @@ import qualified Data.Text as T
 import Data.Time (getZonedTime)
 import Web.Telegram.Bot.DSL
 
-bot = choice $ cmd "/echo"    (\m -> send m)
-            <> cmd "/reverse" (\m -> send (T.reverse m))
-            <> cmd "/help"    (\_ -> send "This is the help message!")
-            <> cmd "/date"    (\_ -> do
-                                t <- liftIO $ getZonedTime
-                                send $ "The time is: " <> (T.pack . show $ t))
+bot = choice $ cmd "echo"    (\m -> send m)
+            <> cmd "reverse" (\m -> send (T.reverse m))
+            <> cmd "date"    (\_ -> do
+                               t <- liftIO $ getZonedTime
+                               send $ "The time is: " <> (T.pack . show $ t))
 ```
 
 ## How to run it

@@ -14,7 +14,8 @@ import Web.Telegram.Bot.Server
 helpMessage :: Text
 helpMessage = (
        "This is the example bot. Try using /echo <msg> and /reverse <msg>. \n"
-    <> "You could also try the calculator, /add."
+    <> "You could also try the calculator, /add.\n"
+    <> "For a full list of commands, use /help."
   )
 
 bot :: MonadIO io => BotM io ()
@@ -69,4 +70,8 @@ options =
               <*> argument auto           (metavar "PORT")
               <*> argument text           (metavar "BOT_TOKEN")
               <*> pure Nothing
-  where text = T.pack <$> str
+              <*> botEnv
+
+botEnv = BotEnv <$> argument text (metavar "BOT_USER_NAME")
+
+text = T.pack <$> str

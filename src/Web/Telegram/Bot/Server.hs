@@ -147,7 +147,8 @@ data BotSettings = BotSettings
   , bsRemoteUrl      :: Text
   , bsListeningPort  :: Int
   , bsToken          :: Text
-  , bsServerSettings :: Maybe Settings }
+  , bsServerSettings :: Maybe Settings
+  , bsBotEnv         :: BotEnv }
 
 runBot :: BotSettings -> BotM IO () -> IO ()
 runBot s b = do
@@ -183,6 +184,6 @@ runBot s b = do
                        . maybe defaultSettings id
                        $ (bsServerSettings s)
           replyManager <- newManager tlsManagerSettings
-          let bc = BotConf secret (mkBot b) (Token $ bsToken s) replyManager
+          let bc = BotConf secret (mkBot (bsBotEnv s) b) (Token $ bsToken s) replyManager
           runServer tls settings bc
 

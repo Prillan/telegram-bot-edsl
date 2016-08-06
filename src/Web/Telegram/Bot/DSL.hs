@@ -8,6 +8,8 @@ module Web.Telegram.Bot.DSL
   , input
   , mkBot
   , Bot
+  , BotEnv(..)
+  , env
   , BotM
   , BotCommand
   , runBotInTerminal
@@ -40,7 +42,7 @@ choiceCustomHelp help = choice' (Just help)
 
 defaultHelpMessage :: [Text] -> Text
 defaultHelpMessage cmds =
-  T.intercalate "\n" $ (["Valid commands: "] ++ cmds ++ ["/help"])
+  T.intercalate "\n" $ (["Valid commands: "] ++ map ("/" <>) cmds ++ ["/help"])
 
 data Command = Command { command     :: Text
                        , botUserName :: Maybe Text
@@ -63,13 +65,15 @@ choice' :: Monad m => (Maybe ([Text] -> Text)) -> BotCommand (BotM m a) -> BotM 
 choice' helpMessage cmds = loop
   where loop = do
           x <- input
-          case (parseCommand x) of
-            Left  _ -> loop
-            Right c -> case (helpMessage, command c) of
-              (Just help, "help") -> send (help $ map fst cmds)
-                                      *> loop
-              _                   -> foldM (go c) Nothing cmds
-                                      >>= maybe (choice cmds) pure
+          e <- env
+          maybe loop id $ do
+            c <- either (const Nothing) Just $ parseCommand x
+            let un = botUserName c
+            guard (isNothing un || un == Just (botName e))
+            pure $ case (helpMessage, command c) of
+                      (Just help, "help") -> send (help $ map fst cmds) *> loop
+                      _                   -> foldM (go c) Nothing cmds
+                                               >>= maybe (choice cmds) pure
         go ic Nothing (cp, cmd)
           | command ic == cp = Just <$> cmd (maybe "" id (arguments ic))
           | otherwise        = pure Nothing

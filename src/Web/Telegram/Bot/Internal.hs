@@ -3,6 +3,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Web.Telegram.Bot.Internal
  ( Bot
+ , BotEnv(..)
+ , env
  , BotOutput(..)
  , send
  , cmd
@@ -15,6 +17,7 @@ module Web.Telegram.Bot.Internal
 
 import Control.Monad (join, foldM, forever)
 import Control.Monad.Trans.Free
+import Control.Monad.Trans.Reader
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -29,7 +32,10 @@ data BotAction next = BASend Text next
                     | BACancel
  deriving Functor
 
-type BotM m = FreeT BotAction m
+data BotEnv = BotEnv { botName :: Text }
+  deriving Show
+
+type BotM m = FreeT BotAction (ReaderT BotEnv m)
 
 data BotOutput = BotSend Text
   deriving Show
@@ -48,8 +54,11 @@ cancel  = liftF BACancel
 input :: Monad m => BotM m Text
 input = liftF (BAInput id)
 
-mkBot :: (MonadIO m) => BotM m a -> Bot m ()
-mkBot bot = iterTM go (bot *> pure ())
+env :: Monad m => BotM m BotEnv
+env = lift ask
+
+mkBot :: (MonadIO m) => BotEnv -> BotM m a -> Bot m ()
+mkBot e bot = iterTM go (hoistFreeT (flip runReaderT e) bot *> pure ())
   where go BACancel = l "Cancel" *> s "Alright, cancelling." *> pure ()
         go (BASend t n) = s t *> n
         go (BAInput n) = await >>= n
@@ -77,5 +86,8 @@ fakeOut = do
 runBotInTerminal :: BotM IO () -> IO ()
 runBotInTerminal bot = do
   putStrLn "Starting bot."
+  let env = BotEnv "test_bot"
+  putStrLn "With environment: "
+  putStrLn $ (" " ++) $ show env
   putStrLn "Press q at any time to quit"
-  runEffect $ fakeIn >-> (mkBot (forever bot)) >-> fakeOut
+  runEffect $ fakeIn >-> (mkBot env (forever bot)) >-> fakeOut
