@@ -1,7 +1,9 @@
 resolver: lts-6.10
 packages:
 - '.'
-- '../haskell-telegram-api'
+- location:
+    git: https://github.com/Prillan/haskell-telegram-api
+    commit: 823ba4e2bd8fe2fdd86ac6b8e0e51f4e64223dc3
 extra-deps: []
 flags: {}
 extra-package-dbs: []
