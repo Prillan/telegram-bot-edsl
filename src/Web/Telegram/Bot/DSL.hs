@@ -6,6 +6,7 @@ module Web.Telegram.Bot.DSL
   , choiceNoHelp
   , choiceCustomHelp
   , input
+  , inputWithReply
   , mkBot
   , Bot
   , BotEnv(..)

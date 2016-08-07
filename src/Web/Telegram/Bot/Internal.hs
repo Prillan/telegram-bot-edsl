@@ -5,11 +5,13 @@ module Web.Telegram.Bot.Internal
  ( Bot
  , BotEnv(..)
  , env
+ , BotInput(..)
  , BotOutput(..)
  , send
  , cmd
  , cancel
  , input
+ , inputWithReply
  , mkBot
  , BotM
  , BotCommand
@@ -27,8 +29,9 @@ import qualified Pipes.Prelude as P
 
 type BotCommand next = [(Text, Text -> next)]
 
-data BotAction next = BASend Text next
-                    | BAInput (Text -> next)
+type MessageId = Int
+data BotAction next = BASend Text (Maybe MessageId) next
+                    | BAInput (BotInput -> next)
                     | BACancel
  deriving Functor
 
@@ -37,50 +40,74 @@ data BotEnv = BotEnv { botName :: Text }
 
 type BotM m = FreeT BotAction (ReaderT BotEnv m)
 
-data BotOutput = BotSend Text
+data BotInput = BotTextMessage { botTextMessageText   :: Text
+                               , botTextMessageId     :: MessageId
+                               , botTextMessageUserId :: Int }
+  deriving Show
+data BotOutput = BotSend Text (Maybe MessageId)
   deriving Show
 
-type Bot m = Proxy () Text () BotOutput m
+type Bot m = Proxy () BotInput () BotOutput m
 
 cmd :: Monad m => Text -> (Text -> BotM m a) -> BotCommand (BotM m a)
 cmd t c = [(t, c)]
 
+send' :: Monad m => Text -> Maybe MessageId -> BotM m ()
+send' t m = liftF (BASend t m ())
+
 send :: Monad m => Text -> BotM m ()
-send t = liftF (BASend t ())
+send t = send' t Nothing
+
+reply :: Monad m => Text -> MessageId -> BotM m ()
+reply t i = send' t (Just i)
 
 cancel :: Monad m => BotM m ()
 cancel  = liftF BACancel
 
+input' :: Monad m => BotM m BotInput
+input' = liftF (BAInput id)
+
 input :: Monad m => BotM m Text
-input = liftF (BAInput id)
+input = botTextMessageText <$> input'
+
+inputWithReply :: Monad m => BotM m (Text, (Text -> BotM m ()))
+inputWithReply = go <$> input'
+  where go (BotTextMessage t mid _) = (t, flip reply mid)
 
 env :: Monad m => BotM m BotEnv
 env = lift ask
 
 mkBot :: (MonadIO m) => BotEnv -> BotM m a -> Bot m ()
 mkBot e bot = iterTM go (hoistFreeT (flip runReaderT e) bot *> pure ())
-  where go BACancel = l "Cancel" *> s "Alright, cancelling." *> pure ()
-        go (BASend t n) = s t *> n
+  where go BACancel = l "Cancel" *> s "Alright, cancelling." Nothing *> pure ()
+        go (BASend t mid n) = s t mid *> n
         go (BAInput n) = await >>= n
-        s t
+        s t mid
           | T.null t  = l "Empty message, skipping."
-          | otherwise = yield (BotSend t)
+          | otherwise = yield (BotSend t mid)
         l t = liftIO $ putStrLn $ T.unpack t
 
-fakeIn :: Producer Text IO ()
-fakeIn = do
-  liftIO $ putStr "Write something to the bot: "
-  x <- liftIO $ T.pack <$> getLine
-  if x == "q"
-     then pure ()
-     else yield x *> fakeIn
+fakeIn :: Producer BotInput IO ()
+fakeIn = loop 0
+  where loop mid = do
+          liftIO $ putStr "Write something to the bot: "
+          x <- liftIO $ T.pack <$> getLine
+          if x == "q"
+             then pure ()
+             else yield (BotTextMessage x mid 0) *> loop (mid + 1)
 
 fakeOut = do
   x <- await
-  case x of
-    BotSend t -> liftIO $ putStrLn . T.unpack $ "** START MESSAGE ** \n"
-                                              <> t
-                                              <> "\n** END MESSAGE **"
+  liftIO $ putStrLn . T.unpack $
+    case x of
+      BotSend t (Just i) -> "** START MESSAGE, REPLY TO "
+                         <> T.pack (show i)
+                         <> "** \n"
+                         <> t
+                         <> "\n** END MESSAGE **"
+      BotSend t _        -> "** START MESSAGE **\n"
+                         <> t
+                         <> "\n** END MESSAGE **"
   fakeOut
 
 runBotInTerminal :: BotM IO () -> IO ()

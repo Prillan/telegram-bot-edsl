@@ -34,8 +34,12 @@ import qualified Pipes.Prelude as P
 import Servant
 import System.Random
 
-sendReply :: (Monad m, MonadIO io) => ChatId -> Text -> ReaderT (BotConf m) io ()
-sendReply cid t = do
+sendReply :: (Monad m, MonadIO io)
+          => ChatId
+          -> Text
+          -> Maybe Int
+          -> ReaderT (BotConf m) io ()
+sendReply cid t mid = do
   manager <- bcManager <$> ask
   token   <- bcToken   <$> ask
   let smr = SendMessageRequest
@@ -45,7 +49,7 @@ sendReply cid t = do
              , message_parse_mode = Nothing
              , message_disable_web_page_preview = Nothing
              , message_disable_notification = Nothing
-             , message_reply_to_message_id = Nothing
+             , message_reply_to_message_id = mid
              , message_reply_markup = Nothing
              }
   response <- liftIO $ sendMessage token smr manager
@@ -79,7 +83,7 @@ data BotConf m = BotConf
 
 type ChatId = Int
 type Callback = ServerOutput -> IO ()
-data ServerOutput = ServerOutput ChatId Text
+data ServerOutput = ServerOutput ChatId BotInput
 
 webhookServer :: MonadIO io
               => Callback
@@ -88,11 +92,14 @@ webhookServer :: MonadIO io
               -> ReaderT (BotConf io) Handler ()
 webhookServer callback secret value = do
   x <- bcSecret <$> ask
-  when (x == secret) $ do
-    let m = message value
-    case (chat_id.chat <$> m, m >>= text) of
-      (Just cid, Just t)  -> liftIO $ callback $ ServerOutput cid t
-      _ -> pure ()
+  maybe (pure ()) (liftIO . callback) $ do
+    guard (x == secret)
+    m <- message value
+    t <- text m
+    let mid = message_id m
+        cid = chat_id (chat m)
+    uid <- user_id <$> from m
+    pure $ ServerOutput cid (BotTextMessage t mid uid)
 
 webhookApi :: Proxy WebhookApi
 webhookApi = Proxy :: Proxy WebhookApi
@@ -126,8 +133,8 @@ handleResponses :: ReaderT (BotConf IO) (Consumer (ChatId, BotOutput) IO) ()
 handleResponses = forever $ do
   (cid, a) <- lift $ await
   case a of
-    BotSend t -> sendReply cid t
-    _ -> pure ()
+    BotSend t mid -> sendReply cid t mid
+    _             -> pure ()
   liftIO $ putStrLn $ "RESPONSE: " <> show a
 
 runServer :: Maybe TLSSettings -> Settings -> BotConf IO -> IO ()
