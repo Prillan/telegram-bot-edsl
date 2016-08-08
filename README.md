@@ -11,28 +11,35 @@ adds the possibility of uploading self-signed certs.
 
 ## Syntax
 
-The DSL is built on top of `FreeT`, providing you with all your
-favorite `IO` actions at the bottom of a safe layer. This layer is the
-monad `BotM m` for some base monad `m`.
+The DSL is built on top of
+[`pipes`](https://www.stackage.org/package/pipes) using `await` to get
+an update from telegram and `yield` to send a response back. It also
+provides a set of combinator to make all of this easier.
 
-### Primitives
+### Base
 
 ```haskell
-input  :: Monad m => BotM m Text
-send   :: Monad m => Text -> BotM m ()
+type Bot m = Proxy () BotInput () BotOutput (ReaderT BotEnv m)
+
+type MessageId = Int
+data BotInput = BotTextMessage { botTextMessageText   :: Text
+                               , botTextMessageId     :: MessageId
+                               , botTextMessageUserId :: Int }
+
+data BotOutput = BotSend Text (Maybe MessageId)
+data BotEnv = BotEnv { botName :: Text }
 ```
 
 ### Combinators
 
 ```haskell
-cmd    :: Monad m => Text -> (Text -> BotM m a) -> BotCommand (BotM m a)
-choice :: Monad m => BotCommand (BotM m a) -> BotM m a
+send           :: Monad m => Text -> Bot m ()
+input          :: Monad m => Bot m Text
+inputWithReply :: Monad m => Bot m (Text, Text -> Bot m ())
+env            :: Monad m => Bot m BotEnv
+cmd            :: Monad m => Text -> (Text -> Bot m a) -> BotCommand (Bot m a)
+choice         :: Monad m => BotCommand (Bot m a) -> Bot m a
 ```
-
-The type `BotCommand a` is just a synonym for `[(Text, Text -> a)]` so
-everything that works on lists work on `BotCommand` as well. It comes
-in handy when selecting between different commands, see the example
-below.
 
 ### Example
 ```haskell
@@ -112,7 +119,7 @@ Run the server: `runBotWithWebhooks bs bot`.
 
 ### Run the bot with long polling
 
-This is a lotot easier and you only need the bot token and the bot user
+This is a lot easier and you only need the bot token and the bot user
 name.
 
 ```haskell
