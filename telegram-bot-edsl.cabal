@@ -1,5 +1,5 @@
 name:                telegram-bot-edsl
-version:             0.0.4.0
+version:             0.0.5.0
 synopsis:            A small and simple EDSL for building telegram bots
 description:         Please see README.md
 homepage:            https://github.com/Prillan/telegram-bot-edsl#readme
@@ -22,7 +22,6 @@ library
                      , base64-bytestring    >= 1.0.0.1 && < 1.1
                      , bytestring           >= 0.10.6  && < 0.11
                      , containers           >= 0.5.6   && < 0.7
-                     , free                 >= 4.12.4  && < 4.13
                      , http-client          >= 0.4.31  && < 0.5
                      , http-client-tls      >= 0.2.4.1 && < 0.3
                      , megaparsec           >= 4.4     && < 4.5

@@ -18,7 +18,7 @@ helpMessage = (
     <> "For a full list of commands, use /help."
   )
 
-bot :: MonadIO io => BotM io ()
+bot :: MonadIO io => Bot io ()
 bot = choice $ cmd "start"   (const (send helpMessage))
             <> cmd "echo"    (send)
             <> cmd "reverse" (send . T.reverse)
@@ -38,7 +38,7 @@ bot = choice $ cmd "start"   (const (send helpMessage))
 
 -- Helpers
 
-input' :: MonadIO io => Read a => Maybe Text -> Int -> BotM io (Maybe a)
+input' :: MonadIO io => Read a => Maybe Text -> Int -> Bot io (Maybe a)
 input' m i = loop i
   where loop i'
          | i' <= 0   = pure Nothing

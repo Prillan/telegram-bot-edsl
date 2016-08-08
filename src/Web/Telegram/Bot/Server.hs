@@ -12,7 +12,6 @@ import Control.Concurrent.Async (async)
 import Control.Exception (bracket)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Except (ExceptT)
 import Control.Monad.Trans.Reader
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
@@ -76,7 +75,7 @@ type WebhookApi =
 data BotConf m = BotConf
   {
     bcSecret  :: Text,
-    bcBot     :: Bot m (),
+    bcBot     :: BotPipe m (),
     bcToken   :: Token,
     bcManager :: Manager
   }
@@ -109,7 +108,7 @@ webhookApp bc callback = do
    let webhookServer' = webhookServer callback
    serve webhookApi $ enter (runReaderTNat bc) webhookServer'
 
-botWorker :: MonadIO io => Bot IO ()
+botWorker :: MonadIO io => BotPipe IO ()
                         -> Output (ChatId, BotOutput)
                         -> Consumer ServerOutput io ()
 botWorker defaultBot output = loop Map.empty
@@ -134,7 +133,6 @@ handleResponses = forever $ do
   (cid, a) <- lift $ await
   case a of
     BotSend t mid -> sendReply cid t mid
-    _             -> pure ()
   liftIO $ putStrLn $ "RESPONSE: " <> show a
 
 runServer :: Maybe TLSSettings -> Settings -> BotConf IO -> IO ()
@@ -157,7 +155,7 @@ data BotSettings = BotSettings
   , bsServerSettings :: Maybe Settings
   , bsBotEnv         :: BotEnv }
 
-runBot :: BotSettings -> BotM IO () -> IO ()
+runBot :: BotSettings -> Bot IO () -> IO ()
 runBot s b = do
   let tls = tlsSettings <$> (pure $ bsSslCert s) <*> (bsSslKey s)
       req = SetWebhookWithCertRequest

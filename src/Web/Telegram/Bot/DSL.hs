@@ -10,8 +10,8 @@ module Web.Telegram.Bot.DSL
   , mkBot
   , Bot
   , BotEnv(..)
+  , BotPipe
   , env
-  , BotM
   , BotCommand
   , runBotInTerminal
   , (<>)
@@ -25,20 +25,19 @@ import Data.Bifunctor
 import Data.Char
 import Data.Maybe
 import Data.Semigroup ((<>))
-import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Megaparsec (Parsec)
 import qualified Text.Megaparsec as MP
 import Web.Telegram.Bot.Internal
 
-choice :: Monad m => BotCommand (BotM m a) -> BotM m a
+choice :: Monad m => BotCommand (Bot m a) -> Bot m a
 choice = choice' (Just defaultHelpMessage)
 
-choiceNoHelp :: Monad m => BotCommand (BotM m a) -> BotM m a
+choiceNoHelp :: Monad m => BotCommand (Bot m a) -> Bot m a
 choiceNoHelp = choice' Nothing
 
-choiceCustomHelp :: Monad m => ([Text] -> Text) -> BotCommand (BotM m a) -> BotM m a
+choiceCustomHelp :: Monad m => ([Text] -> Text) -> BotCommand (Bot m a) -> Bot m a
 choiceCustomHelp help = choice' (Just help)
 
 defaultHelpMessage :: [Text] -> Text
@@ -62,7 +61,7 @@ commandParser = do
 parseCommand :: Text -> Either Text Command
 parseCommand = first (T.pack.show) . MP.runParser commandParser ""
 
-choice' :: Monad m => (Maybe ([Text] -> Text)) -> BotCommand (BotM m a) -> BotM m a
+choice' :: Monad m => (Maybe ([Text] -> Text)) -> BotCommand (Bot m a) -> Bot m a
 choice' helpMessage cmds = loop
   where loop = do
           x <- input
