@@ -55,22 +55,43 @@ tshow = T.pack . show
 -- Application entry point
 main :: IO ()
 main = do
- args <- execParser opts
- runBot args bot
+  args <- execParser opts
+  let runner = case args of
+                  Polling token botEnv -> runBotWithPolling token botEnv
+                  Webhook botSettings  -> runBotWithWebhooks botSettings
+  runner bot
 
--- Option parsing
-opts :: ParserInfo BotSettings
-opts = info (helper <*> options) fullDesc
 
-options :: Parser BotSettings
-options =
-  BotSettings <$> argument str            (metavar "SSL_CERT_FILE")
-              <*> argument (Just <$> str) (metavar "SSL_KEY_FILE")
-              <*> argument text           (metavar "REMOTE_URL_BASE")
-              <*> argument auto           (metavar "PORT")
-              <*> argument text           (metavar "BOT_TOKEN")
-              <*> pure Nothing
-              <*> botEnv
+data ProgramCommand = Polling Text BotEnv
+                    | Webhook BotSettings
+
+opts = info (helper <*> commandParser) fullDesc
+
+(<+>) :: Monoid a => a -> a -> a
+x <+> y = x `mappend` y
+
+commandParser :: Parser ProgramCommand
+commandParser =
+  subparser $ command "polling"
+                      (info pollingOptions
+                            (progDesc "Run the bot using the polling method."))
+          <+> command "webhooks"
+                      (info webhookOptions
+                            (progDesc "Run the bot using webhooks."))
+
+pollingOptions :: Parser ProgramCommand
+pollingOptions = Polling <$> argument text (metavar "BOT_TOKEN")
+                         <*> botEnv
+
+webhookOptions :: Parser ProgramCommand
+webhookOptions =
+  Webhook <$> (BotSettings <$> argument str            (metavar "SSL_CERT_FILE")
+                           <*> argument (Just <$> str) (metavar "SSL_KEY_FILE")
+                           <*> argument text           (metavar "REMOTE_URL_BASE")
+                           <*> argument auto           (metavar "PORT")
+                           <*> argument text           (metavar "BOT_TOKEN")
+                           <*> pure Nothing
+                           <*> botEnv)
 
 botEnv = BotEnv <$> argument text (metavar "BOT_USER_NAME")
 

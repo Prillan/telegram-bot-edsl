@@ -3,7 +3,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Web.Telegram.Bot.Server
   ( BotSettings(..)
-  , runBot ) where
+  , runBotWithWebhooks
+  , runBotWithPolling ) where
 
 import Web.Telegram.Bot.Internal hiding (send)
 import Web.Telegram.API.Bot
@@ -17,6 +18,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base64 as B64
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (mapMaybe)
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -33,14 +35,13 @@ import qualified Pipes.Prelude as P
 import Servant
 import System.Random
 
-sendReply :: (Monad m, MonadIO io)
+sendReply :: MonadIO io
           => ChatId
           -> Text
           -> Maybe Int
-          -> ReaderT (BotConf m) io ()
+          -> ReaderT (Manager, Token) io ()
 sendReply cid t mid = do
-  manager <- bcManager <$> ask
-  token   <- bcToken   <$> ask
+  (manager, token) <- ask
   let smr = SendMessageRequest
              {
                message_chat_id = T.pack.show $ cid
@@ -74,7 +75,6 @@ type WebhookApi =
 
 data BotConf m = BotConf
   {
-    bcSecret  :: Text,
     bcBot     :: BotPipe m (),
     bcToken   :: Token,
     bcManager :: Manager
@@ -84,29 +84,66 @@ type ChatId = Int
 type Callback = ServerOutput -> IO ()
 data ServerOutput = ServerOutput ChatId BotInput
 
-webhookServer :: MonadIO io
-              => Callback
+parseUpdate :: Update -> Maybe ServerOutput
+parseUpdate value = do
+  m <- message value
+  t <- text m
+  let mid = message_id m
+      cid = chat_id (chat m)
+  uid <- user_id <$> from m
+  pure $ ServerOutput cid (BotTextMessage t mid uid)
+
+webhookServer :: Callback
+              -> Text
               -> Text
               -> Update
-              -> ReaderT (BotConf io) Handler ()
-webhookServer callback secret value = do
-  x <- bcSecret <$> ask
+              -> Handler ()
+webhookServer callback presetSecret secret value =
   maybe (pure ()) (liftIO . callback) $ do
-    guard (x == secret)
-    m <- message value
-    t <- text m
-    let mid = message_id m
-        cid = chat_id (chat m)
-    uid <- user_id <$> from m
-    pure $ ServerOutput cid (BotTextMessage t mid uid)
+    guard (presetSecret == secret)
+    parseUpdate value
 
 webhookApi :: Proxy WebhookApi
 webhookApi = Proxy :: Proxy WebhookApi
 
-webhookApp :: MonadIO m => BotConf m -> Callback -> Application
-webhookApp bc callback = do
-   let webhookServer' = webhookServer callback
-   serve webhookApi $ enter (runReaderTNat bc) webhookServer'
+webhookApp :: Text -> Callback -> Application
+webhookApp secret callback = do
+   serve webhookApi $ webhookServer callback secret
+
+webhookServerProducer :: Maybe TLSSettings
+                      -> Settings
+                      -> Text
+                      -> Output ServerOutput
+                      -> IO ()
+webhookServerProducer tls settings secret serverOutput =
+  case tls of
+    Just tls' -> runTLS tls' settings (webhookApp secret cb)
+    Nothing   -> runSettings settings (webhookApp secret cb)
+  where cb d = atomically $ send serverOutput d *> pure ()
+
+longPollingProducer :: Text
+                    -> Output ServerOutput
+                    -> IO ()
+longPollingProducer token serverOutput = do
+      manager <- newManager tlsManagerSettings
+      loop manager Nothing
+    where send' = liftIO . atomically . send serverOutput
+          loop m offset = do
+            putStrLn "Starting long poll..."
+            response <- getUpdates (Token $ token) offset Nothing (Just 60) m
+            putStrLn "Reponse received."
+            case response of
+              Right (UpdatesResponse updates) ->
+                mapM_ send' . mapMaybe parseUpdate $ updates
+              Left e ->
+                putStrLn $ ("Received invalid updates: \n" ++) . take 100 . show $ e
+            let highest = either (const Nothing)
+                                 (Just . maximum . map update_id . update_result)
+                                 response
+            loop m ((+1) <$> max highest offset)
+
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe = either (const Nothing) Just
 
 botWorker :: MonadIO io => BotPipe IO ()
                         -> Output (ChatId, BotOutput)
@@ -128,23 +165,23 @@ botWorker defaultBot output = loop Map.empty
           liftIO $ atomically $ send b t -- Send a message to the specific bot
           loop m'
 
-handleResponses :: ReaderT (BotConf IO) (Consumer (ChatId, BotOutput) IO) ()
+handleResponses :: ReaderT (Manager, Token) (Consumer (ChatId, BotOutput) IO) ()
 handleResponses = forever $ do
   (cid, a) <- lift $ await
   case a of
     BotSend t mid -> sendReply cid t mid
   liftIO $ putStrLn $ "RESPONSE: " <> show a
 
-runServer :: Maybe TLSSettings -> Settings -> BotConf IO -> IO ()
-runServer tls settings bc = do
-  (serverOutput, serverInput) <- liftIO $ spawn (bounded 1)
-  let cb d = atomically $ send serverOutput d *> pure ()
-  (botOutput, botInput) <- liftIO $ spawn unbounded
-  async $ runEffect $ fromInput serverInput >-> botWorker (bcBot bc) botOutput
-  async $ runEffect $ fromInput botInput    >-> (runReaderT handleResponses bc)
-  case tls of
-    Just tls' -> runTLS tls' settings (webhookApp bc cb)
-    Nothing   -> runSettings settings (webhookApp bc cb)
+runBot :: BotPipe IO () -> Token -> (Output ServerOutput -> IO ()) -> IO ()
+runBot defaultBot token producer = do
+  (serverOutput, serverInput) <- spawn (bounded 1)
+  (botOutput, botInput)       <- spawn unbounded
+  replyManager                <- newManager tlsManagerSettings
+  async $ runEffect $ fromInput serverInput
+                      >-> botWorker defaultBot botOutput
+  async $ runEffect $ fromInput botInput
+                      >-> (runReaderT handleResponses (replyManager, token))
+  producer serverOutput
 
 data BotSettings = BotSettings
   { bsSslCert        :: FilePath
@@ -155,8 +192,8 @@ data BotSettings = BotSettings
   , bsServerSettings :: Maybe Settings
   , bsBotEnv         :: BotEnv }
 
-runBot :: BotSettings -> Bot IO () -> IO ()
-runBot s b = do
+runBotWithWebhooks :: BotSettings -> Bot IO () -> IO ()
+runBotWithWebhooks s b = do
   let tls = tlsSettings <$> (pure $ bsSslCert s) <*> (bsSslKey s)
       req = SetWebhookWithCertRequest
             $ FileUpload Nothing (FileUploadFile (bsSslCert s))
@@ -188,7 +225,12 @@ runBot s b = do
                        . setLogger aplog
                        . maybe defaultSettings id
                        $ (bsServerSettings s)
-          replyManager <- newManager tlsManagerSettings
-          let bc = BotConf secret (mkBot (bsBotEnv s) b) (Token $ bsToken s) replyManager
-          runServer tls settings bc
+          runBot (mkBot (bsBotEnv s) b)
+                 (Token $ bsToken s)
+                 (webhookServerProducer tls settings secret)
 
+runBotWithPolling :: Text -> BotEnv -> Bot IO () -> IO ()
+runBotWithPolling token botEnv bot =
+  runBot (mkBot botEnv bot)
+         (Token token)
+         (longPollingProducer token)

@@ -50,7 +50,14 @@ bot = choice $ cmd "echo"    (\m -> send m)
 ## How to run it
 
 You can always test your bot in the terminal by running
-`runBotInTerminal bot`. In order to put it live, you need five things.
+`runBotInTerminal bot`.
+
+There are two main ways of running the bot, via webhooks or long
+polling.
+
+### Run the bot with webhooks
+
+You need five things.
 
 1. The ssl certificate file.
 2. The ssl private key file.
@@ -59,17 +66,17 @@ You can always test your bot in the terminal by running
 4. The local port
 5. The bot token
 
-### Generating a SSL certificate
+#### Generating a SSL certificate
 
 See
 [Generating a self-signed certificate pair](https://core.telegram.org/bots/self-signed).
 
-### Getting a bot token
+#### Getting a bot token
 
 Follow the steps over at
 [Bots: An introduction for developers](https://core.telegram.org/bots#6-botfather).
 
-### What's up with the remote url and local port?
+#### What's up with the remote url and local port?
 
 In order for your bot to receive update you have to expose it to the
 internet. The first step is to get a domain pointing at your server,
@@ -81,11 +88,11 @@ Example:
 `example.com  → x.y.z.w`
 `:8443 → :5000`
 
-### (Optional) Extra server settings
+#### (Optional) Extra server settings
 
 See [the docs for the Warp web server](https://www.stackage.org/package/warp).
 
-### Putting it all together
+#### Putting it all together
 
 ```haskell
 bs = BotSettings
@@ -96,7 +103,24 @@ bs = BotSettings
   , bsListeningPort  = 5000
   , bsToken          = "<YOUR_BOT_TOKEN>"
   , bsServerSettings = Nothing
+  , bsBotEnv         = BotEnv "<BOT_USER_NAME>"
   }
 ```
 
-Run the server: `runBot bs bot`.
+Run the server: `runBotWithWebhooks bs bot`.
+
+
+### Run the bot with long polling
+
+This is a lotot easier and you only need the bot token and the bot user
+name.
+
+```haskell
+env = BotEnv
+  {
+    botName = "<BOT_USER_NAME>"
+  }
+token = "<BOT_TOKEN>"
+```
+
+Run it: `runBotWithPolling token env`

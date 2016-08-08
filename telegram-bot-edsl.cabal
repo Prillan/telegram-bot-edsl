@@ -1,5 +1,5 @@
 name:                telegram-bot-edsl
-version:             0.0.5.0
+version:             0.0.6.0
 synopsis:            A small and simple EDSL for building telegram bots
 description:         Please see README.md
 homepage:            https://github.com/Prillan/telegram-bot-edsl#readme
