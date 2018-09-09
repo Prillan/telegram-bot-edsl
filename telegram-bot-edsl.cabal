@@ -1,5 +1,5 @@
 name:                telegram-bot-edsl
-version:             0.0.6.0
+version:             0.1.0.0
 synopsis:            A small and simple EDSL for building telegram bots
 description:         Please see README.md
 homepage:            https://github.com/Prillan/telegram-bot-edsl#readme
@@ -32,6 +32,7 @@ library
                      , random               >= 1.1     && < 1.2
                      , semigroups           >= 0.18    && < 0.19
                      , servant              >= 0.7.1   && < 0.8
+                     , servant-client       >= 0.7.1   && < 0.8
                      , servant-server       >= 0.7.1   && < 0.8
                      , telegram-api         >= 0.4.3   && < 0.5
                      , text                 >= 1.2.2.1 && < 1.3

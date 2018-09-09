@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Web.Telegram.Bot.Server
   ( BotSettings(..)
+  , BotCertSettings(..)
   , runBotWithWebhooks
   , runBotWithPolling ) where
 
@@ -37,6 +38,7 @@ import Pipes hiding (Proxy)
 import Pipes.Concurrent
 import qualified Pipes.Prelude as P
 import Servant
+import Servant.Common.Req (ServantError)
 import System.Random
 
 sendReply :: MonadIO io
@@ -184,42 +186,66 @@ runBot defaultBot token producer = do
   producer serverOutput
 
 data BotSettings = BotSettings
-  { bsSslCert        :: FilePath
-  , bsSslKey         :: Maybe FilePath
+  { bsCert           :: Maybe BotCertSettings
   , bsRemoteUrl      :: Text
   , bsListeningPort  :: Int
   , bsToken          :: Text
   , bsServerSettings :: Maybe Settings
   , bsBotEnv         :: BotEnv }
 
+data BotCertSettings = BotCertSettings
+  { bcsCert        :: FilePath
+  , bcsKey         :: Maybe FilePath }
+
+setupWebhookRequest :: Maybe BotCertSettings
+                    -> Token
+                    -> Text
+                    -> Manager
+                    -> IO (Either ServantError SetWebhookResponse)
+setupWebhookRequest Nothing token url manager =
+  setWebhook token (Just url) manager
+setupWebhookRequest (Just cert) token url manager = do
+  let req = SetWebhookWithCertRequest
+            $ FileUpload Nothing (FileUploadFile (bcsCert cert))
+  setWebhookWithCert token (Just url) req manager
+
+setupWebhook token cert remoteUrl manager = do
+  secret <- generateSecretToken 32
+  let url = remoteUrl <> "/" <> secret
+  res <- setupWebhookRequest cert token url manager
+  case res of
+    Left e -> do
+      putStrLn "Failed to set webhook."
+      putStrLn $ take 100 $ show e
+      pure $ Nothing
+    Right _ -> do
+      putStrLn . T.unpack $ "WebHook set at " <> url
+      pure $ Just secret
+
+destroyWebhook :: Token -> Manager -> a -> IO ()
+destroyWebhook token manager _ = do
+  res <- setWebhook token Nothing manager
+  case res of
+    Left e -> do
+      putStrLn "Failed to unset webhook"
+      putStrLn $ take 100 $ show e
+    Right _ -> do
+      putStrLn $ "Successfully removed the webhook"
+
+webhookServerTlsSettings :: BotCertSettings -> Maybe TLSSettings
+webhookServerTlsSettings cert =
+  tlsSettings <$> pure (bcsCert cert) <*> bcsKey cert
+
 runBotWithWebhooks :: BotSettings -> Bot IO () -> IO ()
 runBotWithWebhooks s b = do
-  let tls = tlsSettings <$> (pure $ bsSslCert s) <*> (bsSslKey s)
-      req = SetWebhookWithCertRequest
-            $ FileUpload Nothing (FileUploadFile (bsSslCert s))
+  let cert = bsCert s
+      tls = cert >>= webhookServerTlsSettings
+      token = Token (bsToken s)
   manager <- newManager tlsManagerSettings
-  bracket (setupHook req manager) (destroyHook manager) (runBot' tls)
-  where setupHook req manager = do
-          secret <- generateSecretToken 32
-          let url = bsRemoteUrl s <> "/" <> secret
-          res <- setWebhookWithCert (Token $ bsToken s) (Just $ url) req manager
-          case res of
-            Left e -> do
-              putStrLn "Failed to set webhook."
-              putStrLn $ take 100 $ show e
-              pure $ Nothing
-            Right _ -> do
-              putStrLn . T.unpack $ "WebHook set at " <> url
-              pure $ Just secret
-        destroyHook manager _ = do
-          res <- setWebhook (Token $ bsToken s) Nothing manager
-          case res of
-            Left e -> do
-              putStrLn "Failed to unset webhook"
-              putStrLn $ take 100 $ show e
-            Right _ -> do
-              putStrLn $ "Successfully removed the webhook"
-        runBot' _ Nothing = pure ()
+  bracket (setupWebhook token cert (bsRemoteUrl s) manager)
+          (destroyWebhook token manager)
+          (runBot' tls)
+  where runBot' _ Nothing = pure ()
         runBot' tls (Just secret) = withStdoutLogger $ \aplog -> do
           let settings = setPort (bsListeningPort s)
                        . setLogger aplog

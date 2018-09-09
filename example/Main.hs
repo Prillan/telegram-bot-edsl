@@ -6,6 +6,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getZonedTime)
 import Options.Applicative hiding ((<>), switch)
+import qualified Options.Applicative as Opt
 import Text.Read (readMaybe)
 
 import Web.Telegram.Bot.DSL
@@ -83,13 +84,19 @@ pollingOptions :: Parser ProgramCommand
 pollingOptions = Polling <$> argument text (metavar "BOT_TOKEN")
                          <*> botEnv
 
+sslOptions :: Parser BotCertSettings
+sslOptions =
+  BotCertSettings <$> strOption (long "cert"
+                                 Opt.<> metavar "SSL_CERT_FILE")
+                  <*> (Just <$> strOption (long "key"
+                                           Opt.<> metavar "SSL_KEY_FILE"))
+
 webhookOptions :: Parser ProgramCommand
 webhookOptions =
-  Webhook <$> (BotSettings <$> argument str            (metavar "SSL_CERT_FILE")
-                           <*> argument (Just <$> str) (metavar "SSL_KEY_FILE")
-                           <*> argument text           (metavar "REMOTE_URL_BASE")
-                           <*> argument auto           (metavar "PORT")
-                           <*> argument text           (metavar "BOT_TOKEN")
+  Webhook <$> (BotSettings <$> optional sslOptions
+                           <*> argument text        (metavar "REMOTE_URL_BASE")
+                           <*> argument auto        (metavar "PORT")
+                           <*> argument text        (metavar "BOT_TOKEN")
                            <*> pure Nothing
                            <*> botEnv)
 
