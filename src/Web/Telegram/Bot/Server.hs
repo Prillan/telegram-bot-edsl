@@ -27,7 +27,11 @@ import Network.HTTP.Client      (Manager, newManager)
 import Network.HTTP.Client.TLS  (tlsManagerSettings)
 import Network.Wai (Application)
 import Network.Wai.Logger (withStdoutLogger)
-import Network.Wai.Handler.Warp (Settings, setPort, setLogger, defaultSettings, runSettings)
+import Network.Wai.Handler.Warp ( Settings
+                                , setPort
+                                , setLogger
+                                , defaultSettings
+                                , runSettings )
 import Network.Wai.Handler.WarpTLS (TLSSettings, runTLS, tlsSettings)
 import Pipes hiding (Proxy)
 import Pipes.Concurrent
@@ -73,13 +77,6 @@ type WebhookApi =
   Capture "secret" Text :> ReqBody '[JSON] Update
                         :> Post '[JSON] ()
 
-data BotConf m = BotConf
-  {
-    bcBot     :: BotPipe m (),
-    bcToken   :: Token,
-    bcManager :: Manager
-  }
-
 type ChatId = Int
 type Callback = ServerOutput -> IO ()
 data ServerOutput = ServerOutput ChatId BotInput
@@ -92,6 +89,13 @@ parseUpdate value = do
       cid = chat_id (chat m)
   uid <- user_id <$> from m
   pure $ ServerOutput cid (BotTextMessage t mid uid)
+
+highestUpdateId :: Either a UpdatesResponse -> Maybe Int
+highestUpdateId response =
+  case update_result <$> response of
+    Right [] -> Nothing
+    Right xs -> Just (maximum (map update_id xs))
+    Left _   -> Nothing
 
 webhookServer :: Callback
               -> Text
@@ -137,13 +141,9 @@ longPollingProducer token serverOutput = do
                 mapM_ send' . mapMaybe parseUpdate $ updates
               Left e ->
                 putStrLn $ ("Received invalid updates: \n" ++) . take 100 . show $ e
-            let highest = either (const Nothing)
-                                 (Just . maximum . map update_id . update_result)
-                                 response
-            loop m ((+1) <$> max highest offset)
-
-eitherToMaybe :: Either a b -> Maybe b
-eitherToMaybe = either (const Nothing) Just
+            let maxOffset = max (highestUpdateId response) offset
+                newOffset = (+1) <$> maxOffset
+            loop m newOffset
 
 botWorker :: MonadIO io => BotPipe IO ()
                         -> Output (ChatId, BotOutput)

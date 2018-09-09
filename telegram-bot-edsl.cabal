@@ -17,6 +17,7 @@ library
   exposed-modules:     Web.Telegram.Bot.DSL
                        Web.Telegram.Bot.Server
   other-modules:       Web.Telegram.Bot.Internal
+  ghc-options:         -Wall
   build-depends:       async                >= 2.1.0   && < 2.2
                      , base                 >= 4.7     && < 5
                      , base64-bytestring    >= 1.0.0.1 && < 1.1
